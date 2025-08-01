@@ -612,5 +612,57 @@ document.addEventListener('error', function(e) {
 }, true);
 </script>
 
+<script>
+// Coordinate statiche per le località principali
+const localitaCoordinate = {
+    "lugano": { lat: 46.005, lon: 8.951 },
+    "montagnola": { lat: 45.988, lon: 8.940 },
+    "collina d’oro": { lat: 45.992, lon: 8.943 },
+    "paradiso": { lat: 45.994, lon: 8.951 },
+    "massagno": { lat: 46.012, lon: 8.942 },
+    "melide": { lat: 45.954, lon: 8.948 },
+    "morcote": { lat: 45.923, lon: 8.914 }
+};
+
+function calcolaDistanzaKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function filtraAnnunciConDistanza(filtri) {
+    const cards = document.querySelectorAll('.property-card');
+    cards.forEach(card => {
+        let visibile = true;
+        if (filtri.localita && filtri.distance && filtri.distance > 0) {
+            const key = filtri.localita.trim().toLowerCase();
+            const centro = localitaCoordinate[key];
+            const lat = parseFloat(card.dataset.lat);
+            const lon = parseFloat(card.dataset.lon);
+            if (centro && !isNaN(lat) && !isNaN(lon)) {
+                const distanza = calcolaDistanzaKm(centro.lat, centro.lon, lat, lon);
+                if (distanza > filtri.distance) visibile = false;
+            }
+        }
+        card.style.display = visibile ? "" : "none";
+    });
+}
+
+window.addEventListener("message", (event) => {
+    if (event.origin !== "https://definitivoagosto.netlify.app") return;
+    const data = event.data;
+    if (data && data.localita && data.distance) {
+        console.log("🔍 Filtraggio per distanza:", data.localita, data.distance);
+        filtraAnnunciConDistanza(data);
+    }
+});
+</script>
+
+
 </body>
 </html>
