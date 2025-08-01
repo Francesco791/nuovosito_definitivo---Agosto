@@ -1,42 +1,71 @@
-name: Aggiornamento Annunci
+# .github/workflows/deploy.yml
+name: 🚀 Auto Deploy Immobili - Agosto
 
 on:
   schedule:
-    - cron: '0 4 * * *'  # Ogni giorno alle 04:00 UTC (~6:00 CEST)
-  workflow_dispatch:      # Avvio manuale da GitHub
-
-permissions:
-  contents: write         # Permette il push su GitHub
+    - cron: '0 */4 * * *'  # Ogni 4 ore
+  workflow_dispatch:       # Deploy manuale dal pulsante
+  push:
+    branches: [ main ]     # Ad ogni push su main
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: 🧾 Checkout del codice
-        uses: actions/checkout@v3
-
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: 📦 Installa le dipendenze
-        run: npm install
-
-      - name: 🏗️ Genera index.html dal feed XML
-        run: node build140425.js
-
-      - name: 🔁 Commit e push solo se index.html è cambiato
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add index.html
-          
-          if git diff --cached --quiet; then
-            echo "🟢 Nessuna modifica da pushare."
-          else
-            git commit -m "🔄 Aggiornamento automatico index.html"
-            git push
-            echo "✅ Push completato con successo!"
-          fi
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: 📦 Install Dependencies
+      run: |
+        npm install
+        echo "✅ Dipendenze installate"
+        
+    - name: 🏗️ Build Immobili
+      run: |
+        echo "🔄 Avvio build sistema immobili..."
+        node build140425.js
+        echo "✅ Build completato"
+        
+    - name: 📊 Verifica Output
+      run: |
+        if [ -f "index.html" ]; then
+          echo "✅ index.html generato correttamente"
+          echo "📏 Dimensione file: $(wc -c < index.html) bytes"
+        else
+          echo "❌ Errore: index.html non trovato!"
+          exit 1
+        fi
+        
+    - name: 📤 Commit & Push Changes
+      run: |
+        git config --local user.email "francesco791-github@users.noreply.github.com"
+        git config --local user.name "Francesco791 Auto-Deploy - Agosto"
+        
+        # Aggiungi solo i file necessari
+        git add index.html
+        git add last-build.json
+        
+        # Verifica se ci sono modifiche
+        if git diff --cached --quiet; then
+          echo "🟢 Nessuna modifica da committare"
+        else
+          echo "📝 Trovate modifiche, committando..."
+          git commit -m "🔄 Auto-update immobili $(date '+%Y-%m-%d %H:%M UTC')"
+          git push
+          echo "✅ Push completato con successo!"
+        fi
+        
+    - name: 🎯 Deploy Summary
+      run: |
+        echo "🏠 Deploy completato per repository: nuovosito_definitivo---Agosto"
+        echo "🌐 URL pubblico: https://francesco791.github.io/nuovosito_definitivo---Agosto/"
+        echo "📅 Prossimo aggiornamento automatico: tra 4 ore"

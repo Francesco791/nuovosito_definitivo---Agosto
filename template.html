@@ -11,6 +11,8 @@
       padding: 20px 0;
       background-color: #fefefe;
       color: #2d2d2d;
+      /* REMOVE IFRAME SCROLLBAR - La pagina parent gestisce tutto lo scroll */
+      overflow-x: hidden;
     }
 
     h2 {
@@ -324,7 +326,7 @@ function getLocalitaVicine(località, raggio) {
       5: ['lugano'],
       10: ['lugano', 'pregassona', 'canobbio'],
       20: ['lugano', 'pregassona', 'canobbio', 'torricella', 'caslano'],
-      50: ['lugano', 'pregassona', 'canobbio', 'torricella', 'caslano', 'riva san vitale']
+      50: ['lugano', 'pregassone', 'canobbio', 'torricella', 'caslano', 'riva san vitale']
     },
     'torricella': {
       5: [],
@@ -366,47 +368,37 @@ function estraiLocalita() {
   return Array.from(locationSet).sort();
 }
 
+// FUNZIONE COMPLETAMENTE RISCRITTA per gestire caratteristiche dalle descrizioni
 function filtraAnnunci(filtri) {
   let visibili = 0;
-  console.log('🔍 Filtri applicati:', filtri);
-  
-  // DEBUG SPECIFICO per località
-  if (filtri.localita && filtri.localita.trim()) {
-    console.log(`🗺️ === RICERCA LOCALITÀ: "${filtri.localita}" (raggio: ${filtri.distance || 0}km) ===`);
-  }
+  console.log('🔍 === NUOVA RICERCA AVANZATA ===');
+  console.log('📋 Filtri ricevuti:', filtri);
   
   document.querySelectorAll('.property-card').forEach((card, index) => {
     let visibile = true;
+    const debugInfo = [];
 
-    // Filtro per tipo contratto
-    if (filtri.contract && filtri.contract !== card.dataset.contratto) {
-      visibile = false;
-    }
-
-    // Filtro per località con raggio - LOGICA MIGLIORATA + DEBUG
-    if (filtri.localita) {
+    // === FILTRO LOCALITÀ ===
+    if (filtri.localita && filtri.localita.trim()) {
       const searchLocation = filtri.localita.toLowerCase().trim();
       const comune = (card.dataset.comune || '').toLowerCase().trim();
       const regione = (card.dataset.regione || '').toLowerCase().trim();
-      const provincia = (card.dataset.provincia || '').toLowerCase().trim();
-      const titolo = card.querySelector('.property-title')?.textContent || '';
       
       let locationMatch = false;
       let matchType = '';
       
-      // MATCH ESATTO - priorità massima
+      // MATCH ESATTO
       if (comune === searchLocation || regione === searchLocation) {
         locationMatch = true;
         matchType = 'esatto';
       }
-      // MATCH STARTSWITH - seconda priorità (solo per nomi lunghi)
+      // MATCH PREFISSO (solo per nomi lunghi)
       else if (searchLocation.length >= 5 && (comune.startsWith(searchLocation) || regione.startsWith(searchLocation))) {
         locationMatch = true;
         matchType = 'prefisso';
       }
-      
-      // RAGGIO DI RICERCA - implementazione con mapping località
-      if (!locationMatch && filtri.distance && filtri.distance > 0) {
+      // RAGGIO DI RICERCA
+      else if (filtri.distance && filtri.distance > 0) {
         const vicinanze = getLocalitaVicine(searchLocation, filtri.distance);
         if (vicinanze.includes(comune) || vicinanze.includes(regione)) {
           locationMatch = true;
@@ -414,73 +406,102 @@ function filtraAnnunci(filtri) {
         }
       }
       
-      // DEBUG per ogni card testata
-      console.log(`🏠 "${titolo.substring(0, 30)}..." → ${comune} | Match: ${locationMatch ? '✅ ' + matchType : '❌'}`);
-      
-      if (!locationMatch) visibile = false;
-    }
-
-    // Filtro per tipologia usando codici categoria
-    if (filtri.categoryCodes) {
-      const codiciRichiesti = filtri.categoryCodes.split(',').filter(c => c.trim());
-      const codiciCard = (card.dataset.categoriaCodici || '').split(',');
-      
-      if (codiciRichiesti.length > 0) {
-        const hasMatch = codiciRichiesti.some(codice => 
-          codiciCard.includes(codice.trim())
-        );
-        if (!hasMatch) visibile = false;
+      if (!locationMatch) {
+        visibile = false;
+        debugInfo.push(`❌ Località: ${searchLocation} non match con ${comune}`);
+      } else {
+        debugInfo.push(`✅ Località: ${matchType}`);
       }
     }
 
-    // Filtro per tipologia legacy (fallback)
-    if (filtri.tipo && !filtri.categoryCodes) {
-      const tipi = filtri.tipo.split(',').filter(t => t.trim());
+    // === FILTRO TIPOLOGIA MIGLIORATO ===
+    if (filtri.tipo && filtri.tipologiaTermini) {
       const categoria = card.dataset.categoria || '';
-      if (tipi.length > 0 && !tipi.some(tipo => categoria.includes(tipo.trim()))) {
-        visibile = false;
-      }
-    }
-
-    // Filtro per caratteristiche
-    if (filtri.caratteristiche && filtri.caratteristiche.trim()) {
-      const caratteristicheRichieste = filtri.caratteristiche.split(',').filter(c => c.trim());
-      const caratteristicheCard = (card.dataset.caratteristiche || '').split(',').filter(c => c.trim());
+      const titolo = card.dataset.titolo || '';
+      const descrizione = card.dataset.descrizione || '';
+      const testoCompleto = `${titolo} ${descrizione}`.toLowerCase();
       
-      if (caratteristicheRichieste.length > 0 && 
-          !caratteristicheRichieste.every(char => caratteristicheCard.includes(char.trim()))) {
+      let tipoMatch = false;
+      
+      // Prima controlla categoria standard
+      if (categoria === filtri.tipo) {
+        tipoMatch = true;
+        debugInfo.push(`✅ Tipologia: categoria match (${categoria})`);
+      }
+      // Poi cerca nei testi con i termini specifici
+      else if (filtri.tipologiaTermini.some(termine => testoCompleto.includes(termine))) {
+        tipoMatch = true;
+        const termineMatch = filtri.tipologiaTermini.find(termine => testoCompleto.includes(termine));
+        debugInfo.push(`✅ Tipologia: termine "${termineMatch}" trovato in testo`);
+      }
+      
+      if (!tipoMatch) {
         visibile = false;
+        debugInfo.push(`❌ Tipologia: ${filtri.tipo} non trovata`);
       }
     }
 
-    // Filtro per prezzo
+    // === FILTRO CARATTERISTICHE COMPLETAMENTE NUOVO ===
+    if (filtri.caratteristiche && filtri.caratteristicheTermini) {
+      const caratteristicheCard = (card.dataset.caratteristiche || '').split(',').filter(c => c.trim());
+      const titolo = card.dataset.titolo || '';
+      const descrizione = card.dataset.descrizione || '';
+      const testoCompleto = `${titolo} ${descrizione}`.toLowerCase();
+      
+      let caratteristicaMatch = false;
+      
+      // Prima controlla se la caratteristica è già estratta nei metadati
+      if (caratteristicheCard.includes(filtri.caratteristiche)) {
+        caratteristicaMatch = true;
+        debugInfo.push(`✅ Caratteristica: ${filtri.caratteristiche} trovata in metadati`);
+      }
+      // Poi cerca dinamicamente nel testo con tutti i termini
+      else if (filtri.caratteristicheTermini.some(termine => testoCompleto.includes(termine))) {
+        caratteristicaMatch = true;
+        const termineMatch = filtri.caratteristicheTermini.find(termine => testoCompleto.includes(termine));
+        debugInfo.push(`✅ Caratteristica: termine "${termineMatch}" trovato in descrizione`);
+      }
+      
+      if (!caratteristicaMatch) {
+        visibile = false;
+        debugInfo.push(`❌ Caratteristica: ${filtri.caratteristiche} non trovata`);
+      }
+    }
+
+    // === FILTRI NUMERICI (invariati ma con debug) ===
     const prezzo = parseInt(card.dataset.prezzo) || 0;
-    if (filtri.budgetMin && prezzo > 0 && prezzo < filtri.budgetMin) visibile = false;
-    if (filtri.budgetMax && prezzo > 0 && prezzo > filtri.budgetMax) visibile = false;
+    if (filtri.budgetMax && prezzo > 0 && prezzo > filtri.budgetMax) {
+      visibile = false;
+      debugInfo.push(`❌ Budget: ${prezzo} > ${filtri.budgetMax}`);
+    }
 
-    // Filtro per superficie
     const mq = parseInt(card.dataset.mq) || 0;
-    if (filtri.superficieMin && mq > 0 && mq < filtri.superficieMin) visibile = false;
-    if (filtri.superficieMax && mq > 0 && mq > filtri.superficieMax) visibile = false;
+    if (filtri.superficieMax && mq > 0 && mq > filtri.superficieMax) {
+      visibile = false;
+      debugInfo.push(`❌ Superficie: ${mq} > ${filtri.superficieMax}`);
+    }
 
-    // Filtro per vani
     const vani = parseFloat(card.dataset.vani) || 0;
-    if (filtri.vaniMin && vani > 0 && vani < filtri.vaniMin) visibile = false;
-    if (filtri.vaniMax && vani > 0 && vani > filtri.vaniMax) visibile = false;
+    if (filtri.vaniMax && vani > 0 && vani > filtri.vaniMax) {
+      visibile = false;
+      debugInfo.push(`❌ Vani: ${vani} > ${filtri.vaniMax}`);
+    }
 
-    // Applica la visibilità
+    // === APPLICA VISIBILITÀ ===
     card.style.display = visibile ? 'flex' : 'none';
     if (visibile) visibili++;
+
+    // DEBUG dettagliato per i primi 3 immobili
+    if (index < 3) {
+      const titolo = card.querySelector('.property-title')?.textContent || '';
+      console.log(`🏠 "${titolo.substring(0, 40)}..." → ${visibile ? '✅ VISIBILE' : '❌ NASCOSTO'}`);
+      debugInfo.forEach(info => console.log(`   ${info}`));
+    }
   });
 
-  console.log(`✅ Trovati ${visibili} immobili corrispondenti ai filtri`);
-  
-  // *** RIMOSSO: comunicazione automatica per evitare loop ***
-  // La comunicazione avviene solo su richiesta esplicita
-  
+  console.log(`📊 RISULTATO FINALE: ${visibili} immobili trovati`);
   showNoResultsMessage(visibili);
   
-  // Restituisce il numero per uso interno
   return visibili;
 }
 
@@ -505,13 +526,12 @@ function showNoResultsMessage(count) {
   }
 }
 
-// *** SISTEMA ANTI-LOOP COMPLETAMENTE RINNOVATO ***
+// === SISTEMA COMUNICAZIONE MIGLIORATO ===
 let isInitialized = false;
 let lastMessageId = null;
 let processingMessage = false;
 
 function inviaRispostaSicura(data, targetWindow = window.parent) {
-  // Evita invii multipli della stessa risposta
   const messageId = JSON.stringify(data);
   if (lastMessageId === messageId) {
     console.log('🛑 Risposta già inviata, evito duplicato');
@@ -524,7 +544,6 @@ function inviaRispostaSicura(data, targetWindow = window.parent) {
       lastMessageId = messageId;
       console.log('📤 Risposta inviata:', data);
       
-      // Reset ID dopo 5 secondi per permettere nuove richieste legittime
       setTimeout(() => {
         if (lastMessageId === messageId) {
           lastMessageId = null;
@@ -537,7 +556,6 @@ function inviaRispostaSicura(data, targetWindow = window.parent) {
 }
 
 window.addEventListener('message', function (event) {
-  // Evita elaborazione multipla simultanea
   if (processingMessage) {
     console.log('🛑 Messaggio ignorato: elaborazione in corso');
     return;
@@ -563,32 +581,33 @@ window.addEventListener('message', function (event) {
       return;
     }
 
-    // Gestisce filtri solo se contengono parametri validi
-    if (data && typeof data === 'object' && 
-        (data.localita !== undefined || data.tipo || data.caratteristiche || 
-         data.budgetMin || data.budgetMax || data.superficieMin || data.superficieMax ||
-         data.vaniMin || data.vaniMax || data.distance !== undefined || data.categoryCodes)) {
+    // Gestisce filtri avanzati
+    if (data && typeof data === 'object') {
+      const hasFiltri = data.localita !== undefined || data.tipo || data.caratteristiche || 
+                       data.budgetMax || data.superficieMax || data.vaniMax || 
+                       data.distance !== undefined || data.tipologiaTermini || data.caratteristicheTermini;
       
-      const risultati = filtraAnnunci(data);
-      
-      // Invia risposta SOLO se richiesta esplicitamente
-      if (data.richiestaRisposta) {
-        inviaRispostaSicura({
-          annunciTrovati: risultati,
-          tipo: 'risposta-filtri'
-        }, event.source);
+      if (hasFiltri) {
+        console.log('🎯 Eseguendo filtro avanzato...');
+        const risultati = filtraAnnunci(data);
+        
+        if (data.richiestaRisposta) {
+          inviaRispostaSicura({
+            annunciTrovati: risultati,
+            tipo: 'risposta-filtri'
+          }, event.source);
+        }
       }
     }
     
   } finally {
-    // Rilascia il lock dopo breve delay
     setTimeout(() => {
       processingMessage = false;
     }, 100);
   }
 });
 
-// *** INIZIALIZZAZIONE SEMPLIFICATA ***
+// === INIZIALIZZAZIONE ===
 document.addEventListener('DOMContentLoaded', function() {
   if (isInitialized) {
     console.log('⚠️ Già inizializzato, evito doppia inizializzazione');
@@ -597,14 +616,21 @@ document.addEventListener('DOMContentLoaded', function() {
   
   isInitialized = true;
   const totale = document.querySelectorAll('.property-card').length;
-  console.log(`✅ Caricati ${totale} immobili`);
+  console.log(`✅ Sistema immobili caricato: ${totale} immobili`);
   
-  // *** COMUNICAZIONE INIZIALE RIMOSSA ***
-  // Non invia più messaggi automatici al caricamento
-  // La comunicazione avviene solo su richiesta del parent
+  // Analisi caratteristiche disponibili
+  const caratteristicheDisponibili = new Set();
+  document.querySelectorAll('.property-card').forEach(card => {
+    const caratteristiche = card.dataset.caratteristiche || '';
+    caratteristiche.split(',').forEach(char => {
+      if (char.trim()) caratteristicheDisponibili.add(char.trim());
+    });
+  });
+  
+  console.log('🏷️ Caratteristiche disponibili:', Array.from(caratteristicheDisponibili).sort());
 });
 
-// Gestione errori immagini (questa rimane invariata)
+// Gestione errori immagini
 document.addEventListener('error', function(e) {
   if (e.target.tagName === 'IMG') {
     e.target.src = 'https://via.placeholder.com/400x250/6E5C4F/ffffff?text=Immagine+non+disponibile';
